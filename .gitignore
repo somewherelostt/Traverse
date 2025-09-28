@@ -1,0 +1,27 @@
+# Build artifacts
+/target/
+target/
+
+# Demo files (auto-generated)
+demo-*.md
+demo-*.txt
+demo-*.zip
+demo-*.pdf
+demo-*.jpg
+
+# Test files
+test*.txt
+test*.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
