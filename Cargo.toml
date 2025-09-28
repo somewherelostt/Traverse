@@ -1,0 +1,18 @@
+[package]
+name = "traverse"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "traverse"
+path = "src/main.rs"
+
+[dependencies]
+sha2 = "0.10"
+qr2term = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
