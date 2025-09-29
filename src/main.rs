@@ -329,15 +329,50 @@ impl TraverseNode {
         
         if response.contains("Joined room") || response.contains("FILE:") {
             println!("{}", "Connected to relay server".bright_green());
+            
+            // Parse available files
+            let mut available_files = Vec::new();
             for line in response.lines() {
                 if line.starts_with("FILE:") {
                     let parts: Vec<&str> = line.split(':').collect();
                     if parts.len() >= 4 {
-                        println!("{}: {} bytes - Available for download", 
-                               parts[1].bright_green(), parts[2]);
+                        let file_info = FileInfo {
+                            name: parts[1].to_string(),
+                            size: parts[2].parse().unwrap_or(0),
+                            chunk_count: ((parts[2].parse::<u64>().unwrap_or(0) as f64) / (CHUNK_SIZE as f64)).ceil() as usize,
+                            hash: parts[3].to_string(),
+                            room_code: room_code.to_string(),
+                        };
+                        available_files.push(file_info);
+                        println!("{}. {}: {} - Available for download", 
+                               available_files.len(),
+                               parts[1].bright_green(), 
+                               format_bytes(parts[2].parse().unwrap_or(0)).bright_blue());
                     }
                 } else if !line.trim().is_empty() && !line.contains("HTTP/1.1") && !line.starts_with("Joined room") {
                     println!("{}", line.trim());
+                }
+            }
+            
+            if !available_files.is_empty() {
+                print!("Select file to download (1-{}) or press Enter to exit: ", available_files.len());
+                std::io::stdout().flush()?;
+                
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                
+                if let Ok(choice) = input.trim().parse::<usize>() {
+                    if choice > 0 && choice <= available_files.len() {
+                        let selected_file = &available_files[choice - 1];
+                        println!("Downloading: {}", selected_file.name.bright_green());
+                        
+                        // For global downloads, we need to download directly from the sender
+                        // The sender's IP isn't exposed for security, so we'll download via chunk requests
+                        // through a different approach - for now, show instructions
+                        println!("{}", "Note: Global P2P download functionality requires direct connection to sender.".yellow());
+                        println!("For now, try using local network discovery with: {}", "./target/release/traverse.exe recv".bright_cyan());
+                        println!("Or ask the sender to share the file locally on the same network.");
+                    }
                 }
             }
         } else if response.contains("Room not found") {
