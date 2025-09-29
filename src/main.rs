@@ -15,7 +15,7 @@ const CHUNK_SIZE: usize = 64 * 1024;
 const DISCOVERY_PORT: u16 = 8765;
 const TRANSFER_PORT: u16 = 8766;
 const WEB_PORT: u16 = 8767;
-const RELAY_SERVER: &str = "traverse-relay.onrender.com";
+const RELAY_SERVER: &str = "traverse-yt17.onrender.com";
 
 #[derive(Clone, Debug)]
 struct FileInfo {
