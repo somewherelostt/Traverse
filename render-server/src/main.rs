@@ -150,21 +150,34 @@ fn handle_room_web(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
             format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
                 <html><body style='font-family:Arial;background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px'>\
-                <h1>Traverse Room {}</h1>\
-                <h2>Available Files:</h2>\
+                <h1>🌐 Traverse Room {}</h1>\
+                <h2>📁 Available Files:</h2>\
                 <div>{}</div>\
+                <div style='margin-top:30px;padding:15px;background:rgba(255,255,255,0.1);border-radius:10px'>\
+                <h3>📱 How to Download:</h3>\
+                <p>• <strong>Local Network:</strong> Use Traverse app with room code: <code style='background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:3px'>{}</code></p>\
+                <p>• <strong>Command Line:</strong> <code style='background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:3px'>traverse join {}</code></p>\
+                </div>\
                 </body></html>",
                 room_code,
                 room.files.iter().map(|f| format!(
                     "<div style='background:rgba(255,255,255,0.1);padding:15px;margin:10px;border-radius:10px'>\
-                    <h3>{}</h3><p>Size: {} bytes</p>\
-                    <p>Hash: {}</p></div>", 
+                    <h3>📄 {}</h3>\
+                    <p>📊 Size: {} bytes</p>\
+                    <p>🔐 Hash: {}</p>\
+                    <p style='color:#ffd700'>💡 Use Traverse app to download this file</p>\
+                    </div>", 
                     f.name, f.size, f.hash
-                )).collect::<Vec<_>>().join("")
+                )).collect::<Vec<_>>().join(""),
+                room_code,
+                room_code
             )
         } else {
             "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n\
-            <html><body><h1>Room Not Found</h1></body></html>".to_string()
+            <html><body style='font-family:Arial;background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px'>\
+            <h1>❌ Room Not Found</h1>\
+            <p>This room doesn't exist or has expired.</p>\
+            </body></html>".to_string()
         };
         
         stream.write_all(html.as_bytes())

@@ -180,22 +180,56 @@ impl TraverseNode {
                 for stream in listener.incoming() {
                     if let Ok(mut stream) = stream {
                         let mut buffer = [0; 1024];
-                        if let Ok(_) = stream.read(&mut buffer) {
-                            let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
-                                <html><body style='font-family:Arial;background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px'>\
-                                <h1>Traverse File Portal</h1>";
-                            let _ = stream.write_all(response.as_bytes());
+                        if let Ok(n) = stream.read(&mut buffer) {
+                            let request = String::from_utf8_lossy(&buffer[..n]);
+                            let first_line = request.lines().next().unwrap_or("");
                             
-                            if let Ok(portals) = portals_web.lock() {
-                                for portal in portals.values() {
-                                    let file_html = format!("<div style='background:rgba(255,255,255,0.1);padding:15px;margin:10px;border-radius:10px'>\
-                                        <h3>{}</h3><p>Size: {}</p>\
-                                        <a href='/download/{}' style='color:#ffd700'>Download</a></div>", 
-                                        portal.file_info.name, format_bytes(portal.file_info.size), portal.file_info.hash);
-                                    let _ = stream.write_all(file_html.as_bytes());
+                            if first_line.starts_with("GET /download/") {
+                                // Handle download request
+                                if let Some(hash_part) = first_line.split("/download/").nth(1) {
+                                    let hash = hash_part.split_whitespace().next().unwrap_or("");
+                                    if let Ok(portals) = portals_web.lock() {
+                                        if let Some(portal) = portals.values().find(|p| p.file_info.hash.starts_with(hash)) {
+                                            // Send file content
+                                            if let Ok(mut file) = File::open(&portal.file_path) {
+                                                let mut file_data = Vec::new();
+                                                if file.read_to_end(&mut file_data).is_ok() {
+                                                    let header = format!(
+                                                        "HTTP/1.1 200 OK\r\n\
+                                                        Content-Type: application/octet-stream\r\n\
+                                                        Content-Disposition: attachment; filename=\"{}\"\r\n\
+                                                        Content-Length: {}\r\n\r\n",
+                                                        portal.file_info.name, file_data.len()
+                                                    );
+                                                    let _ = stream.write_all(header.as_bytes());
+                                                    let _ = stream.write_all(&file_data);
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Send 404 if file not found
+                                    let response = "HTTP/1.1 404 Not Found\r\n\r\nFile not found";
+                                    let _ = stream.write_all(response.as_bytes());
                                 }
+                            } else {
+                                // Handle main page request
+                                let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
+                                    <html><body style='font-family:Arial;background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px'>\
+                                    <h1>Traverse File Portal</h1>";
+                                let _ = stream.write_all(response.as_bytes());
+                                
+                                if let Ok(portals) = portals_web.lock() {
+                                    for portal in portals.values() {
+                                        let file_html = format!("<div style='background:rgba(255,255,255,0.1);padding:15px;margin:10px;border-radius:10px'>\
+                                            <h3>{}</h3><p>Size: {}</p>\
+                                            <a href='/download/{}' style='color:#ffd700;text-decoration:none;background:#28a745;padding:8px 16px;border-radius:5px;display:inline-block;margin-top:10px'>📥 Download</a></div>", 
+                                            portal.file_info.name, format_bytes(portal.file_info.size), portal.file_info.hash);
+                                        let _ = stream.write_all(file_html.as_bytes());
+                                    }
+                                }
+                                let _ = stream.write_all(b"</body></html>");
                             }
-                            let _ = stream.write_all(b"</body></html>");
                         }
                     }
                 }
