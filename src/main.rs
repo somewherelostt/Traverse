@@ -101,8 +101,10 @@ impl TraverseNode {
         let _portals_relay = Arc::clone(&self.portals);
         let portal_id_relay = portal_id.clone();
         thread::spawn(move || {
-            if let Ok(mut stream) = TcpStream::connect(format!("{}:80", RELAY_SERVER)) {
-                let _ = stream.write_all(format!("REGISTER {} {}\n", room_code, portal_id_relay).as_bytes());
+            if let Ok(mut stream) = TcpStream::connect(format!("{}:443", RELAY_SERVER)) {
+                let request = format!("GET /register?room={}&portal={} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", 
+                    room_code, portal_id_relay, RELAY_SERVER);
+                let _ = stream.write_all(request.as_bytes());
             }
         });
 
@@ -251,9 +253,11 @@ impl TraverseNode {
     fn join_room(&self, room_code: &str) -> Result<(), Box<dyn std::error::Error>> {
         println!("Joining room: {}", room_code.bright_yellow());
         
-        match TcpStream::connect(format!("{}:80", RELAY_SERVER)) {
+        match TcpStream::connect(format!("{}:443", RELAY_SERVER)) {
             Ok(mut stream) => {
-                stream.write_all(format!("JOIN {}\n", room_code).as_bytes())?;
+                let request = format!("GET /join?room={} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", 
+                    room_code, RELAY_SERVER);
+                stream.write_all(request.as_bytes())?;
                 println!("Connected to relay server");
                 
                 let mut buffer = [0; 4096];
