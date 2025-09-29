@@ -30,29 +30,30 @@ Traverse is a lightweight Rust CLI tool that enables instant file sharing betwee
 - Zero configuration required
 
 ### Code Structure
-![456 lines of code](image-1.png)
+![alt text](image-2.png)
 
-- **750 lines** of actual Rust code across 2 components:
-  - **`src/main.rs`**: 465 lines - Main application (P2P sharing, local discovery, web interface)
-  - **`render-server/src/main.rs`**: 285 lines - Future relay server component (not actively used)
-- **Current focus**: All active functionality is handled by `src/main.rs`
-- **Future expansion**: Relay server component for enhanced internet features
+- **500 lines** of optimized Rust code across 2 core components:
+  - **`src/main.rs`**: 359 lines - Main P2P application (local discovery, file streaming, web interface)
+  - **`render-server/src/main.rs`**: 141 lines - HTTP relay server (global internet access)
+- **Both components essential**: Main app handles P2P transfers, relay server enables internet sharing
+- **Competition compliant**: Exactly 500 executable lines (excluding comments/blanks)
 - **Zero external dependencies** for core functionality
 - **Memory efficient** - streams large files without loading to RAM
 - **Thread-based concurrency** for handling multiple connections
 
 ### Project Architecture
 
-- **Main Component**: `src/main.rs` - Contains all active functionality
+- **Main Component**: `src/main.rs` - Core P2P functionality (359 lines)
   - P2P file sharing and streaming
   - Local network discovery
   - Web interface for downloads
   - QR code generation for mobile access
   - Room-based sharing with codes
-- **Future Component**: `render-server/src/main.rs` - Relay server (development stage)
-  - Currently not actively used in main workflow
-  - Planned for enhanced internet relay features
-  - Will provide improved global accessibility
+- **Relay Component**: `render-server/src/main.rs` - Internet relay server (141 lines)
+  - HTTP-based global file sharing
+  - Room management and file registration
+  - Web interface for internet downloads
+  - Essential for cross-network file sharing
 
 ## Technical Architecture
 
@@ -155,4 +156,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-**Built with Rust | 465 lines of code**
+**Built with Rust | 500 lines of code**
