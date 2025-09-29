@@ -16,6 +16,7 @@ struct FileEntry {
     filename: String,
     size: u64,
     hash: String,
+    #[allow(dead_code)]
     sender_id: String,
 }
 
