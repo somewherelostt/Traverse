@@ -3,13 +3,15 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::fs;
 
 #[derive(Clone, Debug)]
 struct Room {
     code: String,
     files: Vec<FileEntry>,
     sender_ip: Option<String>,
-    pending_downloads: Vec<String>, // List of file hashes requested for download
+    pending_downloads: Vec<String>,
+    uploaded_files: HashMap<String, Vec<u8>>, // Store uploaded file data
 }
 
 #[derive(Clone, Debug)]
@@ -74,6 +76,13 @@ fn handle_http_client(mut stream: TcpStream, rooms: Rooms) -> std::io::Result<()
                 send_404(stream)
             }
         }
+        "POST" => {
+            if path.starts_with("/upload/") {
+                handle_upload(stream, path, &request, rooms)
+            } else {
+                send_404(stream)
+            }
+        }
         _ => send_404(stream),
     }
 }
@@ -105,6 +114,7 @@ fn handle_register(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
                 files: Vec::new(),
                 sender_ip: sender_ip.clone(),
                 pending_downloads: Vec::new(),
+                uploaded_files: HashMap::new(),
             });
             
             // Update sender IP if not set
@@ -155,6 +165,54 @@ fn handle_join(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::Resu
     }
 }
 
+fn handle_upload(mut stream: TcpStream, path: &str, request: &str, rooms: Rooms) -> std::io::Result<()> {
+    // Extract room code and file hash from path like /upload/ROOM/HASH
+    let path_parts: Vec<&str> = path.split('/').collect();
+    if path_parts.len() >= 4 {
+        let room_code = path_parts[2];
+        let file_hash = path_parts[3];
+        
+        // Extract content length from headers
+        let mut content_length = 0;
+        for line in request.lines() {
+            if line.to_lowercase().starts_with("content-length:") {
+                if let Some(len_str) = line.split(':').nth(1) {
+                    content_length = len_str.trim().parse().unwrap_or(0);
+                    break;
+                }
+            }
+        }
+        
+        if content_length > 0 {
+            // Find end of headers
+            if let Some(body_start) = request.find("\r\n\r\n") {
+                let headers_len = body_start + 4;
+                let mut buffer = vec![0u8; content_length];
+                let mut bytes_read = 0;
+                
+                // Read file data
+                while bytes_read < content_length {
+                    match stream.read(&mut buffer[bytes_read..]) {
+                        Ok(0) => break,
+                        Ok(n) => bytes_read += n,
+                        Err(_) => break,
+                    }
+                }
+                
+                // Store file in room
+                let mut rooms = rooms.lock().unwrap();
+                if let Some(room) = rooms.get_mut(room_code) {
+                    room.uploaded_files.insert(file_hash.to_string(), buffer);
+                    println!("File {} uploaded to room {}", file_hash, room_code);
+                    return send_ok_response(stream, "File uploaded successfully");
+                }
+            }
+        }
+    }
+    
+    send_error_response(stream, "Upload failed")
+}
+
 fn handle_download(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::Result<()> {
     // Extract room code and file hash from path like /download/ROOM/HASH
     let path_parts: Vec<&str> = path.split('/').collect();
@@ -162,30 +220,39 @@ fn handle_download(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
         let room_code = path_parts[2];
         let file_hash = path_parts[3];
         
-        let mut rooms = rooms.lock().unwrap();
-        if let Some(room) = rooms.get_mut(room_code) {
+        let rooms = rooms.lock().unwrap();
+        if let Some(room) = rooms.get(room_code) {
             if let Some(file) = room.files.iter().find(|f| f.hash.starts_with(file_hash)) {
-                // Add to pending downloads if not already there
-                if !room.pending_downloads.contains(&file.hash) {
-                    room.pending_downloads.push(file.hash.clone());
+                // Check if file is already uploaded
+                if let Some(file_data) = room.uploaded_files.get(&file.hash) {
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\n\
+                        Content-Type: application/octet-stream\r\n\
+                        Content-Disposition: attachment; filename=\"{}\"\r\n\
+                        Content-Length: {}\r\n\
+                        Access-Control-Allow-Origin: *\r\n\r\n",
+                        file.name, file_data.len()
+                    );
+                    stream.write_all(header.as_bytes())?;
+                    return stream.write_all(file_data);
+                } else {
+                    // File not uploaded yet, show waiting page
+                    let html = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
+                        <html><body style='font-family:Arial;background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px'>\
+                        <h1>🚀 Preparing Download...</h1>\
+                        <p>The file <strong>{}</strong> is being prepared for download.</p>\
+                        <p>Please wait while the sender uploads the file to our servers.</p>\
+                        <div style='background:rgba(255,255,255,0.1);padding:15px;margin:20px 0;border-radius:10px'>\
+                        <h3>Alternative: Use Traverse App</h3>\
+                        <p>For faster transfers, use: <code>./target/release/traverse.exe join {}</code></p>\
+                        </div>\
+                        <script>setTimeout(() => window.location.reload(), 3000);</script>\
+                        </body></html>",
+                        file.name, room_code
+                    );
+                    return stream.write_all(html.as_bytes());
                 }
-                
-                // Send a "download will start soon" page
-                let html = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
-                    <html><body style='font-family:Arial;background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px'>\
-                    <h1>🚀 Download Starting...</h1>\
-                    <p>The file <strong>{}</strong> will begin downloading shortly.</p>\
-                    <p>The sender is being notified to start the transfer.</p>\
-                    <div style='background:rgba(255,255,255,0.1);padding:15px;margin:20px 0;border-radius:10px'>\
-                    <h3>Alternative: Use Traverse App</h3>\
-                    <p>For faster downloads, use: <code>traverse join {}</code></p>\
-                    </div>\
-                    <script>setTimeout(() => window.location.reload(), 5000);</script>\
-                    </body></html>",
-                    file.name, room_code
-                );
-                return stream.write_all(html.as_bytes());
             }
         }
     }
@@ -220,11 +287,11 @@ fn handle_room_web(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
                     <p>📊 Size: {} bytes</p>\
                     <p>🔐 Hash: {}</p>\
                     <div style='margin-top:15px'>\
-                    <p style='color:#ffd700;margin-bottom:10px'>📱 <strong>Recommended:</strong> Use Traverse app for best experience</p>\
-                    <code style='background:rgba(0,0,0,0.3);padding:8px;border-radius:5px;display:block;margin:5px 0'>traverse join {}</code>\
+                    <a href='/download/{}/{}' style='background:#28a745;color:white;text-decoration:none;padding:10px 20px;border-radius:5px;display:inline-block;margin-right:10px'>� Download</a>\
+                    <p style='color:#ffd700;margin:10px 0 0 0'>💡 Or use CLI: <code style='background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:3px'>traverse join {}</code></p>\
                     </div>\
                     </div>", 
-                    f.name, f.size, f.hash, room_code
+                    f.name, f.size, f.hash, room_code, f.hash, room_code
                 )).collect::<Vec<_>>().join(""),
                 room_code,
                 room_code

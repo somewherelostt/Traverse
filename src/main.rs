@@ -123,6 +123,39 @@ impl TraverseNode {
             }
         });
 
+        // Auto-upload service - monitors for download requests and uploads files
+        let portal_id_upload = portal_id.clone();
+        let room_code_upload = room_code.clone();
+        let portals_upload = Arc::clone(&self.portals);
+        thread::spawn(move || {
+            loop {
+                thread::sleep(Duration::from_secs(5)); // Check every 5 seconds
+                
+                // Check if file upload is needed by checking download requests
+                if let Ok(portals) = portals_upload.lock() {
+                    if let Some(portal) = portals.get(&portal_id_upload) {
+                        // Upload file to relay server for global access
+                        if let Ok(file_data) = std::fs::read(&portal.file_path) {
+                            let upload_url = format!("https://{}/upload/{}/{}", 
+                                RELAY_SERVER, room_code_upload, portal.file_info.hash);
+                            
+                            // Try curl for upload
+                            let mut cmd = std::process::Command::new("curl");
+                            cmd.arg("-X").arg("POST")
+                               .arg("-H").arg("Content-Type: application/octet-stream")
+                               .arg("--data-binary").arg(&format!("@{}", portal.file_path))
+                               .arg(&upload_url);
+                            
+                            if let Ok(_) = cmd.output() {
+                                println!("File uploaded to relay server for global access");
+                                break; // Upload once and exit
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         let portals_disc = Arc::clone(&self.portals);
         let portal_id_disc = portal_id.clone();
         thread::spawn(move || {
@@ -364,14 +397,22 @@ impl TraverseNode {
                 if let Ok(choice) = input.trim().parse::<usize>() {
                     if choice > 0 && choice <= available_files.len() {
                         let selected_file = &available_files[choice - 1];
-                        println!("Downloading: {}", selected_file.name.bright_green());
+                        println!("Downloading: {} from relay server...", selected_file.name.bright_green());
                         
-                        // For global downloads, we need to download directly from the sender
-                        // The sender's IP isn't exposed for security, so we'll download via chunk requests
-                        // through a different approach - for now, show instructions
-                        println!("{}", "Note: Global P2P download functionality requires direct connection to sender.".yellow());
-                        println!("For now, try using local network discovery with: {}", "./target/release/traverse.exe recv".bright_cyan());
-                        println!("Or ask the sender to share the file locally on the same network.");
+                        // Download from relay server
+                        let download_url = format!("https://{}/download/{}/{}", 
+                            RELAY_SERVER, room_code, selected_file.hash);
+                        
+                        let output_path = format!("downloaded_{}", selected_file.name);
+                        let curl_cmd = format!("curl -L -o \"{}\" \"{}\"", output_path, download_url);
+                        
+                        println!("Downloading via relay server...");
+                        if std::process::Command::new("cmd").args(&["/C", &curl_cmd]).status()?.success() {
+                            println!("✅ Downloaded to: {}", output_path.bright_green());
+                        } else {
+                            println!("❌ Download failed - file may not be uploaded yet");
+                            println!("💡 Try the web interface: https://{}/room/{}", RELAY_SERVER, room_code);
+                        }
                     }
                 }
             }
