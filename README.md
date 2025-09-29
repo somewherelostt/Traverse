@@ -56,17 +56,17 @@ Download pre-built binaries for your platform from [Releases](https://github.com
 traverse send ./large-dataset.zip
 
 # Output:
-# 📡 Portal created: abc12345
-# 🔐 Room Code: 123456
-# 📁 File: large-dataset.zip (2.1GB, 33792 chunks)  
-# 🌍 Relay server: traverse-relay.railway.app
-# 🔍 Discovery service listening on port 8765
-# 📤 Transfer service listening on port 8766
-# 🌐 Web interface listening on port 8767
-# 🏠 Local: http://192.168.1.100:8767
-# 🌍 Internet: https://traverse-relay.railway.app/room/123456
+# Portal created: abc12345
+# Room Code: 123456
+# File: large-dataset.zip (2.1GB, 33792 chunks)  
+# Relay server: traverse-relay.onrender.com
+# Discovery service listening on port 8765
+# Transfer service listening on port 8766
+# Web interface listening on port 8767
+# Local: http://192.168.1.100:8767
+# Internet: https://traverse-relay.onrender.com/room/123456
 # [QR CODE for mobile scanning]
-# ⏳ Waiting for receivers...
+# Waiting for receivers...
 ```
 
 ### Receive files (4 ways)
@@ -88,7 +88,7 @@ traverse join 123456
 **3. Web browser (local or internet)**
 ```
 Local:    http://192.168.1.100:8767
-Internet: https://traverse-relay.railway.app/room/123456
+Internet: https://traverse-relay.onrender.com/room/123456
 Mobile-friendly interface with direct download
 ```
 

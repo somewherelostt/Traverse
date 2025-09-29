@@ -10,6 +10,8 @@ path = "src/main.rs"
 [dependencies]
 sha2 = "0.10"
 qr2term = "0.3"
+colored = "2.0"
+indicatif = "0.17"
 
 [profile.release]
 opt-level = 3

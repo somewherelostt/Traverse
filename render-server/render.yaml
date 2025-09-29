@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: traverse-relay
+    env: rust
+    buildCommand: cargo build --release
+    startCommand: ./target/release/render-server
+    plan: free
+    envVars:
+      - key: PORT
+        value: 10000

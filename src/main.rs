@@ -8,12 +8,14 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sha2::{Sha256, Digest};
 use qr2term::print_qr;
+use colored::*;
+use indicatif::{ProgressBar, ProgressStyle};
 
 const CHUNK_SIZE: usize = 64 * 1024;
 const DISCOVERY_PORT: u16 = 8765;
 const TRANSFER_PORT: u16 = 8766;
 const WEB_PORT: u16 = 8767;
-const RELAY_SERVER: &str = "traverse-relay.railway.app";
+const RELAY_SERVER: &str = "traverse-relay.onrender.com";
 
 #[derive(Clone, Debug)]
 struct FileInfo {
@@ -78,24 +80,24 @@ impl TraverseNode {
         let portal_id = file_hash[..8].to_string();
         self.portals.lock().unwrap().insert(portal_id.clone(), portal.clone());
 
-        println!("\n🚀 PORTAL ACTIVE | Room: {} | File: {}", room_code, file_info.name);
-        println!("📊 Size: {} ({} chunks)", format_bytes(file_info.size), file_info.chunk_count);
+        println!("{}", "TRAVERSE PORTAL ACTIVE".bright_cyan().bold());
+        println!("Room: {} | File: {}", room_code.bright_yellow(), file_info.name.bright_green());
+        println!("Size: {} ({} chunks)", format_bytes(file_info.size).bright_blue(), file_info.chunk_count);
 
         self.start_services(portal_id.clone(), room_code.clone())?;
 
         let local_ip = get_local_ip().unwrap_or("127.0.0.1".to_string());
-        println!("🏠 Local: http://{}:{} | 🌍 Internet: https://{}/room/{}", 
-                local_ip, WEB_PORT, RELAY_SERVER, room_code);
+        println!("Local: {}", format!("http://{}:{}", local_ip, WEB_PORT).bright_cyan());
+        println!("Internet: {}", format!("https://{}/room/{}", RELAY_SERVER, room_code).bright_magenta());
         
         if let Err(_) = print_qr(&format!("http://{}:{}", local_ip, WEB_PORT)) {
-            println!("📱 QR: http://{}:{}", local_ip, WEB_PORT);
+            println!("QR: {}", format!("http://{}:{}", local_ip, WEB_PORT).dimmed());
         }
 
         Ok(portal_id)
     }
 
     fn start_services(&self, portal_id: String, room_code: String) -> Result<(), Box<dyn std::error::Error>> {
-        // Start relay connection
         let _portals_relay = Arc::clone(&self.portals);
         let portal_id_relay = portal_id.clone();
         thread::spawn(move || {
@@ -104,7 +106,6 @@ impl TraverseNode {
             }
         });
 
-        // Start discovery service
         let portals_disc = Arc::clone(&self.portals);
         let portal_id_disc = portal_id.clone();
         thread::spawn(move || {
@@ -124,7 +125,6 @@ impl TraverseNode {
             }
         });
 
-        // Start transfer service
         let portals_transfer = Arc::clone(&self.portals);
         let cache_transfer = Arc::clone(&self.chunk_cache);
         thread::spawn(move || {
@@ -140,7 +140,6 @@ impl TraverseNode {
                                         for portal in portals.values() {
                                             if let Ok(chunk_data) = read_chunk(&portal.file_path, idx) {
                                                 let _ = stream.write_all(&chunk_data);
-                                                // Cache chunk
                                                 if let Ok(mut cache) = cache_transfer.lock() {
                                                     cache.entry(portal.file_info.hash.clone())
                                                          .or_insert_with(HashMap::new)
@@ -158,7 +157,6 @@ impl TraverseNode {
             }
         });
 
-        // Start web service
         let portals_web = Arc::clone(&self.portals);
         thread::spawn(move || {
             if let Ok(listener) = TcpListener::bind(format!("0.0.0.0:{}", WEB_PORT)) {
@@ -168,13 +166,13 @@ impl TraverseNode {
                         if let Ok(_) = stream.read(&mut buffer) {
                             let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
                                 <html><body style='font-family:Arial;background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px'>\
-                                <h1>🚀 Traverse File Portal</h1>";
+                                <h1>Traverse File Portal</h1>";
                             let _ = stream.write_all(response.as_bytes());
                             
                             if let Ok(portals) = portals_web.lock() {
                                 for portal in portals.values() {
                                     let file_html = format!("<div style='background:rgba(255,255,255,0.1);padding:15px;margin:10px;border-radius:10px'>\
-                                        <h3>📁 {}</h3><p>Size: {}</p>\
+                                        <h3>{}</h3><p>Size: {}</p>\
                                         <a href='/download/{}' style='color:#ffd700'>Download</a></div>", 
                                         portal.file_info.name, format_bytes(portal.file_info.size), portal.file_info.hash);
                                     let _ = stream.write_all(file_html.as_bytes());
@@ -221,7 +219,12 @@ impl TraverseNode {
     }
 
     fn receive_file(&self, _portal_id: &str, transfer_addr: SocketAddr, file_info: &FileInfo) -> Result<(), Box<dyn std::error::Error>> {
-        println!("📥 Downloading: {} ({} chunks)", file_info.name, file_info.chunk_count);
+        println!("Downloading: {} ({} chunks)", file_info.name.bright_green(), file_info.chunk_count);
+        
+        let pb = ProgressBar::new(file_info.chunk_count as u64);
+        pb.set_style(ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} chunks")?
+            .progress_chars("=>-"));
         
         let output_path = format!("downloaded_{}", file_info.name);
         let mut output_file = OpenOptions::new().create(true).write(true).truncate(true).open(&output_path)?;
@@ -236,22 +239,22 @@ impl TraverseNode {
                 
                 if !chunk_data.is_empty() {
                     output_file.write_all(&chunk_data)?;
-                    print!(".");
-                    std::io::stdout().flush().unwrap();
+                    pb.inc(1);
                 }
             }
         }
-        println!("\n✅ Download complete: {}", output_path);
+        pb.finish_with_message("Download complete");
+        println!("Saved to: {}", output_path.bright_green());
         Ok(())
     }
 
     fn join_room(&self, room_code: &str) -> Result<(), Box<dyn std::error::Error>> {
-        println!("🌍 Joining room: {}", room_code);
+        println!("Joining room: {}", room_code.bright_yellow());
         
         match TcpStream::connect(format!("{}:80", RELAY_SERVER)) {
             Ok(mut stream) => {
                 stream.write_all(format!("JOIN {}\n", room_code).as_bytes())?;
-                println!("📡 Connected to relay server");
+                println!("Connected to relay server");
                 
                 let mut buffer = [0; 4096];
                 loop {
@@ -263,11 +266,11 @@ impl TraverseNode {
                                 if line.starts_with("FILE:") {
                                     let parts: Vec<&str> = line.split(':').collect();
                                     if parts.len() >= 4 {
-                                        println!("📁 {}: {} bytes - https://{}/download/{}/{}", 
-                                               parts[1], parts[2], RELAY_SERVER, room_code, parts[3]);
+                                        println!("{}: {} bytes - https://{}/download/{}/{}", 
+                                               parts[1].bright_green(), parts[2], RELAY_SERVER, room_code, parts[3]);
                                     }
                                 } else if !line.trim().is_empty() {
-                                    println!("🌍 {}", line.trim());
+                                    println!("{}", line.trim());
                                 }
                             }
                         }
@@ -275,7 +278,7 @@ impl TraverseNode {
                     }
                 }
             }
-            Err(e) => println!("❌ Connection failed: {}", e),
+            Err(e) => println!("{}: {}", "Connection failed".bright_red(), e),
         }
         Ok(())
     }
@@ -319,11 +322,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     
     if args.len() < 2 {
-        println!("🚀 TRAVERSE v2.0 - Internet P2P File Sharing");
-        println!("Usage:");
-        println!("  {} send <file>     - Share globally", args[0]);
-        println!("  {} recv            - Local discovery", args[0]);
-        println!("  {} join <code>     - Join internet room", args[0]);
+        println!("{}", "TRAVERSE v2.0".bright_cyan().bold());
+        println!("{}", "Internet P2P File Sharing".dimmed());
+        println!("\nUsage:");
+        println!("  {} {} <file>     - Share globally", args[0].dimmed(), "send".bright_green());
+        println!("  {} {}            - Local discovery", args[0].dimmed(), "recv".bright_blue());
+        println!("  {} {} <code>     - Join internet room", args[0].dimmed(), "join".bright_magenta());
         return Ok(());
     }
 
@@ -331,17 +335,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match args[1].as_str() {
         "send" => {
-            if args.len() < 3 { println!("❌ Specify file to send"); return Ok(()); }
+            if args.len() < 3 { 
+                println!("{}", "Error: Specify file to send".bright_red()); 
+                return Ok(()); 
+            }
             node.send_file(&args[2])?;
             loop { thread::sleep(Duration::from_secs(1)); }
         }
         "join" => {
-            if args.len() < 3 { println!("❌ Specify room code"); return Ok(()); }
+            if args.len() < 3 { 
+                println!("{}", "Error: Specify room code".bright_red()); 
+                return Ok(()); 
+            }
             node.join_room(&args[2])?;
             loop { thread::sleep(Duration::from_secs(1)); }
         }
         "recv" => {
-            println!("🔍 Discovering local portals...");
+            println!("Discovering local portals...");
             let portals = node.discover_portals()?;
             
             if portals.is_empty() {
@@ -351,8 +361,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("Available files:");
             for (i, (portal_id, (_addr, file_info))) in portals.iter().enumerate() {
-                println!("{}. {} - {} ({})", i + 1, file_info.name, 
-                        format_bytes(file_info.size), portal_id);
+                println!("{}. {} - {} ({})", 
+                    format!("{}", i + 1).bright_yellow(),
+                    file_info.name.bright_green(), 
+                    format_bytes(file_info.size).bright_blue(), 
+                    portal_id.dimmed());
             }
 
             print!("Select file (1-{}): ", portals.len());
@@ -369,7 +382,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        _ => println!("❌ Unknown command"),
+        _ => println!("{}", "Unknown command".bright_red()),
     }
     
     Ok(())
