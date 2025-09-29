@@ -123,33 +123,40 @@ impl TraverseNode {
             }
         });
 
-        // Auto-upload service - monitors for download requests and uploads files
+        // Auto-upload service - immediately upload file for global access
         let portal_id_upload = portal_id.clone();
         let room_code_upload = room_code.clone();
         let portals_upload = Arc::clone(&self.portals);
         thread::spawn(move || {
-            loop {
-                thread::sleep(Duration::from_secs(5)); // Check every 5 seconds
-                
-                // Check if file upload is needed by checking download requests
-                if let Ok(portals) = portals_upload.lock() {
-                    if let Some(portal) = portals.get(&portal_id_upload) {
-                        // Upload file to relay server for global access
-                        if let Ok(_file_data) = std::fs::read(&portal.file_path) {
-                            let upload_url = format!("https://{}/upload/{}/{}", 
-                                RELAY_SERVER, room_code_upload, portal.file_info.hash);
-                            
-                            // Try curl for upload
-                            let mut cmd = std::process::Command::new("curl");
-                            cmd.arg("-X").arg("POST")
-                               .arg("-H").arg("Content-Type: application/octet-stream")
-                               .arg("--data-binary").arg(&format!("@{}", portal.file_path))
-                               .arg(&upload_url);
-                            
-                            if let Ok(_) = cmd.output() {
-                                println!("File uploaded to relay server for global access");
-                                break; // Upload once and exit
+            // Wait a moment for registration to complete
+            thread::sleep(Duration::from_secs(2));
+            
+            if let Ok(portals) = portals_upload.lock() {
+                if let Some(portal) = portals.get(&portal_id_upload) {
+                    println!("Uploading file to relay server for global access...");
+                    
+                    // Upload file to relay server for global access
+                    let upload_url = format!("https://{}/upload/{}/{}", 
+                        RELAY_SERVER, room_code_upload, portal.file_info.hash);
+                    
+                    // Try curl for upload
+                    let mut cmd = std::process::Command::new("curl");
+                    cmd.arg("-X").arg("POST")
+                       .arg("-H").arg("Content-Type: application/octet-stream")
+                       .arg("--data-binary").arg(&format!("@{}", portal.file_path))
+                       .arg(&upload_url);
+                    
+                    match cmd.output() {
+                        Ok(output) => {
+                            if output.status.success() {
+                                println!("✅ File uploaded to relay server for global access");
+                            } else {
+                                println!("⚠️  File upload to relay server failed");
+                                println!("Error: {}", String::from_utf8_lossy(&output.stderr));
                             }
+                        }
+                        Err(e) => {
+                            println!("⚠️  Failed to execute upload command: {}", e);
                         }
                     }
                 }
@@ -404,10 +411,18 @@ impl TraverseNode {
                             RELAY_SERVER, room_code, selected_file.hash);
                         
                         let output_path = format!("downloaded_{}", selected_file.name);
-                        let curl_cmd = format!("curl -L -o \"{}\" \"{}\"", output_path, download_url);
                         
                         println!("Downloading via relay server...");
-                        if std::process::Command::new("cmd").args(&["/C", &curl_cmd]).status()?.success() {
+                        println!("URL: {}", download_url.dimmed());
+                        
+                        // Use curl with proper quoting for Windows
+                        let mut cmd = std::process::Command::new("curl");
+                        cmd.arg("-L")
+                           .arg("-o")
+                           .arg(&output_path)
+                           .arg(&download_url);
+                           
+                        if cmd.status()?.success() {
                             println!("✅ Downloaded to: {}", output_path.bright_green());
                         } else {
                             println!("❌ Download failed - file may not be uploaded yet");
