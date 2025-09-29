@@ -2,6 +2,7 @@ services:
   - type: web
     name: traverse-relay
     env: rust
+    runtime: rust
     buildCommand: cargo build --release
     startCommand: ./target/release/render-server
     plan: free

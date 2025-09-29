@@ -1,8 +1,0 @@
-{
-  "name": "traverse-relay",
-  "version": "1.0.0",
-  "scripts": {
-    "build": "cargo build --release",
-    "start": "cargo run --release"
-  }
-}
