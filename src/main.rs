@@ -135,7 +135,7 @@ impl TraverseNode {
                 if let Ok(portals) = portals_upload.lock() {
                     if let Some(portal) = portals.get(&portal_id_upload) {
                         // Upload file to relay server for global access
-                        if let Ok(file_data) = std::fs::read(&portal.file_path) {
+                        if let Ok(_file_data) = std::fs::read(&portal.file_path) {
                             let upload_url = format!("https://{}/upload/{}/{}", 
                                 RELAY_SERVER, room_code_upload, portal.file_info.hash);
                             

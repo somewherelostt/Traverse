@@ -3,13 +3,14 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::fs;
 
 #[derive(Clone, Debug)]
 struct Room {
+    #[allow(dead_code)]
     code: String,
     files: Vec<FileEntry>,
     sender_ip: Option<String>,
+    #[allow(dead_code)]
     pending_downloads: Vec<String>,
     uploaded_files: HashMap<String, Vec<u8>>, // Store uploaded file data
 }
@@ -87,7 +88,7 @@ fn handle_http_client(mut stream: TcpStream, rooms: Rooms) -> std::io::Result<()
     }
 }
 
-fn handle_register(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::Result<()> {
+fn handle_register(stream: TcpStream, path: &str, rooms: Rooms) -> std::io::Result<()> {
     if let Some(query) = path.split('?').nth(1) {
         let mut room_code = None;
         let mut portal_id = None;
@@ -142,7 +143,7 @@ fn handle_register(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
     }
 }
 
-fn handle_join(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::Result<()> {
+fn handle_join(stream: TcpStream, path: &str, rooms: Rooms) -> std::io::Result<()> {
     if let Some(query) = path.split('?').nth(1) {
         if let Some(room_code) = query.strip_prefix("room=") {
             let rooms = rooms.lock().unwrap();
@@ -186,7 +187,7 @@ fn handle_upload(mut stream: TcpStream, path: &str, request: &str, rooms: Rooms)
         if content_length > 0 {
             // Find end of headers
             if let Some(body_start) = request.find("\r\n\r\n") {
-                let headers_len = body_start + 4;
+                let _headers_len = body_start + 4;
                 let mut buffer = vec![0u8; content_length];
                 let mut bytes_read = 0;
                 
