@@ -100,8 +100,21 @@ impl TraverseNode {
     fn start_services(&self, portal_id: String, room_code: String) -> Result<(), Box<dyn std::error::Error>> {
         let portal_id_relay = portal_id.clone();
         let room_code_relay = room_code.clone();
+        let portals_reg = Arc::clone(&self.portals);
         thread::spawn(move || {
-            let url = format!("https://{}/register?room={}&portal={}", RELAY_SERVER, room_code_relay, portal_id_relay);
+            // Get file info from the portal
+            let (file_name, file_size) = if let Ok(portals) = portals_reg.lock() {
+                if let Some(portal) = portals.get(&portal_id_relay) {
+                    (portal.file_info.name.clone(), portal.file_info.size)
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            };
+            
+            let url = format!("https://{}/register?room={}&portal={}&file={}&size={}", 
+                RELAY_SERVER, room_code_relay, portal_id_relay, file_name, file_size);
             
             // Try curl first, then PowerShell as fallback
             if std::process::Command::new("curl").arg("-s").arg(&url).output().is_err() {
@@ -256,6 +269,7 @@ impl TraverseNode {
         println!("Joining room: {}", room_code.bright_yellow());
         
         let url = format!("https://{}/join?room={}", RELAY_SERVER, room_code);
+        println!("Connecting to: {}", url.dimmed());
         
         // Try curl first, then PowerShell as fallback
         let output = if let Ok(result) = std::process::Command::new("curl").arg("-s").arg(&url).output() {
@@ -263,12 +277,24 @@ impl TraverseNode {
         } else {
             let ps_command = format!("Invoke-WebRequest -Uri '{}' -UseBasicParsing | Select-Object -ExpandProperty Content", url);
             std::process::Command::new("powershell").arg("-Command").arg(ps_command).output()
-                .unwrap_or_else(|_| std::process::Output { status: std::process::ExitStatus::default(), stdout: Vec::new(), stderr: Vec::new() })
+                .unwrap_or_else(|_| std::process::Output { 
+                    status: std::process::ExitStatus::default(), 
+                    stdout: Vec::new(), 
+                    stderr: Vec::new() 
+                })
         };
         
         let response = String::from_utf8_lossy(&output.stdout);
-        if response.contains("Joined room") {
-            println!("Connected to relay server");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        
+        if !stderr.is_empty() {
+            println!("Debug - stderr: {}", stderr.dimmed());
+        }
+        
+        println!("Debug - Response: {}", response.trim().dimmed());
+        
+        if response.contains("Joined room") || response.contains("FILE:") {
+            println!("{}", "Connected to relay server".bright_green());
             for line in response.lines() {
                 if line.starts_with("FILE:") {
                     let parts: Vec<&str> = line.split(':').collect();
@@ -276,13 +302,20 @@ impl TraverseNode {
                         println!("{}: {} bytes - Available for download", 
                                parts[1].bright_green(), parts[2]);
                     }
-                } else if !line.trim().is_empty() && !line.contains("HTTP/1.1") {
+                } else if !line.trim().is_empty() && !line.contains("HTTP/1.1") && !line.starts_with("Joined room") {
                     println!("{}", line.trim());
                 }
             }
-        } else {
-            println!("{}: Room not found or server unavailable", "Connection failed".bright_red());
+        } else if response.contains("Room not found") {
+            println!("{}: Room {} not found on server", "Connection failed".bright_red(), room_code);
+            println!("The room may not be registered yet or the sender is offline");
             println!("Try the local web interface: {}", format!("http://192.168.1.8:8767").bright_cyan());
+        } else if response.trim().is_empty() {
+            println!("{}: No response from server", "Connection failed".bright_red());
+            println!("Check internet connection or try again later");
+        } else {
+            println!("{}: Unexpected response", "Connection failed".bright_red());
+            println!("Server response: {}", response.trim());
         }
         Ok(())
     }
