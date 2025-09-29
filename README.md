@@ -1,8 +1,15 @@
-# Traverse 🚀
+# Traverse 🌍
 
-**Fast, intelligent P2P file sharing for developers**
+**Fast, intelligent P2P file sharing with global internet support**
 
-Traverse is a modern CLI tool that revolutionizes file sharing between development machines. Built for developers who need instant, reliable file transfer across networks without the hassle of cloud uploads or USB drives.
+Traverse is a modern CLI tool that revolutionizes file sharing between development machines globally. Built for developers who need instant, reliable file transfer across networks and the internet without the hassle of cloud uploads or USB drives.
+
+## 🆕 New: Internet Support & Private Rooms
+
+- 🌍 **Global Access** - Share files across the internet via relay server
+- 🔐 **Private Rooms** - Secure 6-digit room codes for controlled access
+- 📱 **Mobile Internet Access** - QR codes work globally, not just local network
+- 🏠 **Hybrid Mode** - Local network + internet support simultaneously
 
 ## Why Traverse? 🤔
 
@@ -43,23 +50,26 @@ Download pre-built binaries for your platform from [Releases](https://github.com
 
 ## Quick Start 🚀
 
-### Share a file
+### Share a file globally
 ```bash
-# Instantly create a portal for sharing
+# Create a global portal with room code
 traverse send ./large-dataset.zip
 
 # Output:
 # 📡 Portal created: abc12345
+# 🔐 Room Code: 123456
 # 📁 File: large-dataset.zip (2.1GB, 33792 chunks)  
+# 🌍 Relay server: traverse-relay.railway.app
 # 🔍 Discovery service listening on port 8765
 # 📤 Transfer service listening on port 8766
 # 🌐 Web interface listening on port 8767
-# 📱 Mobile access: http://192.168.1.100:8767
+# 🏠 Local: http://192.168.1.100:8767
+# 🌍 Internet: https://traverse-relay.railway.app/room/123456
 # [QR CODE for mobile scanning]
 # ⏳ Waiting for receivers...
 ```
 
-### Receive files (3 ways)
+### Receive files (4 ways)
 
 **1. CLI (fastest, same network)**
 ```bash
@@ -68,16 +78,24 @@ traverse recv
 # Choose file → instant streaming download begins
 ```
 
-**2. Web browser (any device, any network)**
+**2. Internet via room code (global access)**
+```bash
+traverse join 123456
+# Connects to relay server and shows files in room
+# Download via HTTPS links from anywhere
 ```
-Open: http://192.168.1.100:8767
+
+**3. Web browser (local or internet)**
+```
+Local:    http://192.168.1.100:8767
+Internet: https://traverse-relay.railway.app/room/123456
 Mobile-friendly interface with direct download
 ```
 
-**3. Mobile via QR code**
+**4. Mobile via QR code (local network)**
 ```
-Scan QR code → instant access from phone
-Works across WiFi networks
+Scan QR code → instant local access from phone
+Works on same WiFi network
 ```
 
 ## Developer Use Cases �
