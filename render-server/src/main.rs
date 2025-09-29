@@ -8,6 +8,7 @@ use std::thread;
 struct Room {
     code: String,
     files: Vec<FileEntry>,
+    sender_ip: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +67,8 @@ fn handle_http_client(mut stream: TcpStream, rooms: Rooms) -> std::io::Result<()
                 handle_join(stream, path, rooms)
             } else if path.starts_with("/room/") {
                 handle_room_web(stream, path, rooms)
+            } else if path.starts_with("/download/") {
+                handle_download(stream, path, rooms)
             } else {
                 send_404(stream)
             }
@@ -80,6 +83,7 @@ fn handle_register(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
         let mut portal_id = None;
         let mut file_name = None;
         let mut file_size = None;
+        let sender_ip = stream.peer_addr().ok().map(|addr| addr.ip().to_string());
         
         for param in query.split('&') {
             if let Some((key, value)) = param.split_once('=') {
@@ -98,7 +102,13 @@ fn handle_register(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
             let room_entry = rooms.entry(room.to_string()).or_insert_with(|| Room {
                 code: room.to_string(),
                 files: Vec::new(),
+                sender_ip: sender_ip.clone(),
             });
+            
+            // Update sender IP if not set
+            if room_entry.sender_ip.is_none() {
+                room_entry.sender_ip = sender_ip;
+            }
             
             // Add file if not already present
             if !room_entry.files.iter().any(|f| f.name == file) {
@@ -109,7 +119,8 @@ fn handle_register(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
                 });
             }
             
-            println!("Portal {} registered file {} in room {}", portal, file, room);
+            println!("Portal {} registered file {} in room {} from IP {:?}", 
+                portal, file, room, room_entry.sender_ip);
             send_ok_response(stream, "Registered successfully")
         } else {
             send_error_response(stream, "Missing parameters")
@@ -142,6 +153,71 @@ fn handle_join(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::Resu
     }
 }
 
+fn handle_download(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::Result<()> {
+    // Extract room code and file hash from path like /download/ROOM/HASH
+    let path_parts: Vec<&str> = path.split('/').collect();
+    if path_parts.len() >= 4 {
+        let room_code = path_parts[2];
+        let file_hash = path_parts[3];
+        
+        let rooms = rooms.lock().unwrap();
+        if let Some(room) = rooms.get(room_code) {
+            if let Some(file) = room.files.iter().find(|f| f.hash.starts_with(file_hash)) {
+                if let Some(sender_ip) = &room.sender_ip {
+                    // Try to fetch file from sender
+                    let sender_addr = format!("{}:8767", sender_ip); // WEB_PORT
+                    if let Ok(mut sender_stream) = std::net::TcpStream::connect(&sender_addr) {
+                        let request = format!("GET /download/{} HTTP/1.1\r\nHost: {}\r\n\r\n", 
+                            file.hash, sender_ip);
+                        
+                        if sender_stream.write_all(request.as_bytes()).is_ok() {
+                            // Forward response from sender to client
+                            let mut buffer = [0; 8192];
+                            let mut headers_sent = false;
+                            
+                            loop {
+                                match sender_stream.read(&mut buffer) {
+                                    Ok(0) => break, // EOF
+                                    Ok(n) => {
+                                        if !headers_sent {
+                                            // Send download headers
+                                            let header = format!(
+                                                "HTTP/1.1 200 OK\r\n\
+                                                Content-Type: application/octet-stream\r\n\
+                                                Content-Disposition: attachment; filename=\"{}\"\r\n\
+                                                Access-Control-Allow-Origin: *\r\n\r\n",
+                                                file.name
+                                            );
+                                            let _ = stream.write_all(header.as_bytes());
+                                            headers_sent = true;
+                                            
+                                            // Skip HTTP headers from sender response
+                                            let response = String::from_utf8_lossy(&buffer[..n]);
+                                            if let Some(body_start) = response.find("\r\n\r\n") {
+                                                let body = &buffer[body_start + 4..n];
+                                                let _ = stream.write_all(body);
+                                            }
+                                        } else {
+                                            let _ = stream.write_all(&buffer[..n]);
+                                        }
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Send 404 if file not found or sender offline
+    let response = "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n\
+        <html><body><h1>File Not Found</h1><p>The file is not available or the sender is offline.</p></body></html>";
+    stream.write_all(response.as_bytes())
+}
+
 fn handle_room_web(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::Result<()> {
     if let Some(room_code) = path.strip_prefix("/room/") {
         let rooms = rooms.lock().unwrap();
@@ -165,9 +241,9 @@ fn handle_room_web(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
                     <h3>📄 {}</h3>\
                     <p>📊 Size: {} bytes</p>\
                     <p>🔐 Hash: {}</p>\
-                    <p style='color:#ffd700'>💡 Use Traverse app to download this file</p>\
+                    <a href='/download/{}/{}' style='background:#28a745;color:white;text-decoration:none;padding:10px 20px;border-radius:5px;display:inline-block;margin-top:10px'>📥 Download File</a>\
                     </div>", 
-                    f.name, f.size, f.hash
+                    f.name, f.size, f.hash, room_code, f.hash
                 )).collect::<Vec<_>>().join(""),
                 room_code,
                 room_code

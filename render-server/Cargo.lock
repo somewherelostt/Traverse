@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "traverse-relay"
+name = "render-server"
 version = "0.1.0"
