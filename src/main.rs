@@ -21,6 +21,7 @@ struct FileInfo {
     size: u64,
     chunk_count: usize,
     hash: String,
+    #[allow(dead_code)]
     room_code: String,
 }
 
@@ -28,6 +29,7 @@ struct FileInfo {
 struct Portal {
     file_info: FileInfo,
     file_path: String,
+    #[allow(dead_code)]
     peers: Arc<Mutex<Vec<SocketAddr>>>,
 }
 
@@ -94,7 +96,7 @@ impl TraverseNode {
 
     fn start_services(&self, portal_id: String, room_code: String) -> Result<(), Box<dyn std::error::Error>> {
         // Start relay connection
-        let portals_relay = Arc::clone(&self.portals);
+        let _portals_relay = Arc::clone(&self.portals);
         let portal_id_relay = portal_id.clone();
         thread::spawn(move || {
             if let Ok(mut stream) = TcpStream::connect(format!("{}:80", RELAY_SERVER)) {
@@ -218,7 +220,7 @@ impl TraverseNode {
         Ok(portals)
     }
 
-    fn receive_file(&self, portal_id: &str, transfer_addr: SocketAddr, file_info: &FileInfo) -> Result<(), Box<dyn std::error::Error>> {
+    fn receive_file(&self, _portal_id: &str, transfer_addr: SocketAddr, file_info: &FileInfo) -> Result<(), Box<dyn std::error::Error>> {
         println!("📥 Downloading: {} ({} chunks)", file_info.name, file_info.chunk_count);
         
         let output_path = format!("downloaded_{}", file_info.name);
@@ -348,7 +350,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             println!("Available files:");
-            for (i, (portal_id, (addr, file_info))) in portals.iter().enumerate() {
+            for (i, (portal_id, (_addr, file_info))) in portals.iter().enumerate() {
                 println!("{}. {} - {} ({})", i + 1, file_info.name, 
                         format_bytes(file_info.size), portal_id);
             }
