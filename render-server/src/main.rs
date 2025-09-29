@@ -9,6 +9,7 @@ struct Room {
     code: String,
     files: Vec<FileEntry>,
     sender_ip: Option<String>,
+    pending_downloads: Vec<String>, // List of file hashes requested for download
 }
 
 #[derive(Clone, Debug)]
@@ -103,6 +104,7 @@ fn handle_register(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
                 code: room.to_string(),
                 files: Vec::new(),
                 sender_ip: sender_ip.clone(),
+                pending_downloads: Vec::new(),
             });
             
             // Update sender IP if not set
@@ -160,61 +162,37 @@ fn handle_download(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
         let room_code = path_parts[2];
         let file_hash = path_parts[3];
         
-        let rooms = rooms.lock().unwrap();
-        if let Some(room) = rooms.get(room_code) {
+        let mut rooms = rooms.lock().unwrap();
+        if let Some(room) = rooms.get_mut(room_code) {
             if let Some(file) = room.files.iter().find(|f| f.hash.starts_with(file_hash)) {
-                if let Some(sender_ip) = &room.sender_ip {
-                    // Try to fetch file from sender
-                    let sender_addr = format!("{}:8767", sender_ip); // WEB_PORT
-                    if let Ok(mut sender_stream) = std::net::TcpStream::connect(&sender_addr) {
-                        let request = format!("GET /download/{} HTTP/1.1\r\nHost: {}\r\n\r\n", 
-                            file.hash, sender_ip);
-                        
-                        if sender_stream.write_all(request.as_bytes()).is_ok() {
-                            // Forward response from sender to client
-                            let mut buffer = [0; 8192];
-                            let mut headers_sent = false;
-                            
-                            loop {
-                                match sender_stream.read(&mut buffer) {
-                                    Ok(0) => break, // EOF
-                                    Ok(n) => {
-                                        if !headers_sent {
-                                            // Send download headers
-                                            let header = format!(
-                                                "HTTP/1.1 200 OK\r\n\
-                                                Content-Type: application/octet-stream\r\n\
-                                                Content-Disposition: attachment; filename=\"{}\"\r\n\
-                                                Access-Control-Allow-Origin: *\r\n\r\n",
-                                                file.name
-                                            );
-                                            let _ = stream.write_all(header.as_bytes());
-                                            headers_sent = true;
-                                            
-                                            // Skip HTTP headers from sender response
-                                            let response = String::from_utf8_lossy(&buffer[..n]);
-                                            if let Some(body_start) = response.find("\r\n\r\n") {
-                                                let body = &buffer[body_start + 4..n];
-                                                let _ = stream.write_all(body);
-                                            }
-                                        } else {
-                                            let _ = stream.write_all(&buffer[..n]);
-                                        }
-                                    }
-                                    Err(_) => break,
-                                }
-                            }
-                            return Ok(());
-                        }
-                    }
+                // Add to pending downloads if not already there
+                if !room.pending_downloads.contains(&file.hash) {
+                    room.pending_downloads.push(file.hash.clone());
                 }
+                
+                // Send a "download will start soon" page
+                let html = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
+                    <html><body style='font-family:Arial;background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px'>\
+                    <h1>🚀 Download Starting...</h1>\
+                    <p>The file <strong>{}</strong> will begin downloading shortly.</p>\
+                    <p>The sender is being notified to start the transfer.</p>\
+                    <div style='background:rgba(255,255,255,0.1);padding:15px;margin:20px 0;border-radius:10px'>\
+                    <h3>Alternative: Use Traverse App</h3>\
+                    <p>For faster downloads, use: <code>traverse join {}</code></p>\
+                    </div>\
+                    <script>setTimeout(() => window.location.reload(), 5000);</script>\
+                    </body></html>",
+                    file.name, room_code
+                );
+                return stream.write_all(html.as_bytes());
             }
         }
     }
     
-    // Send 404 if file not found or sender offline
+    // Send 404 if file not found
     let response = "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n\
-        <html><body><h1>File Not Found</h1><p>The file is not available or the sender is offline.</p></body></html>";
+        <html><body><h1>File Not Found</h1><p>The requested file was not found.</p></body></html>";
     stream.write_all(response.as_bytes())
 }
 
@@ -241,9 +219,12 @@ fn handle_room_web(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
                     <h3>📄 {}</h3>\
                     <p>📊 Size: {} bytes</p>\
                     <p>🔐 Hash: {}</p>\
-                    <a href='/download/{}/{}' style='background:#28a745;color:white;text-decoration:none;padding:10px 20px;border-radius:5px;display:inline-block;margin-top:10px'>📥 Download File</a>\
+                    <div style='margin-top:15px'>\
+                    <p style='color:#ffd700;margin-bottom:10px'>📱 <strong>Recommended:</strong> Use Traverse app for best experience</p>\
+                    <code style='background:rgba(0,0,0,0.3);padding:8px;border-radius:5px;display:block;margin:5px 0'>traverse join {}</code>\
+                    </div>\
                     </div>", 
-                    f.name, f.size, f.hash, room_code, f.hash
+                    f.name, f.size, f.hash, room_code
                 )).collect::<Vec<_>>().join(""),
                 room_code,
                 room_code
