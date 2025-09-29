@@ -98,13 +98,15 @@ impl TraverseNode {
     }
 
     fn start_services(&self, portal_id: String, room_code: String) -> Result<(), Box<dyn std::error::Error>> {
-        let _portals_relay = Arc::clone(&self.portals);
         let portal_id_relay = portal_id.clone();
+        let room_code_relay = room_code.clone();
         thread::spawn(move || {
-            if let Ok(mut stream) = TcpStream::connect(format!("{}:443", RELAY_SERVER)) {
-                let request = format!("GET /register?room={}&portal={} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", 
-                    room_code, portal_id_relay, RELAY_SERVER);
-                let _ = stream.write_all(request.as_bytes());
+            let url = format!("https://{}/register?room={}&portal={}", RELAY_SERVER, room_code_relay, portal_id_relay);
+            
+            // Try curl first, then PowerShell as fallback
+            if std::process::Command::new("curl").arg("-s").arg(&url).output().is_err() {
+                let ps_command = format!("Invoke-WebRequest -Uri '{}' -UseBasicParsing", url);
+                let _ = std::process::Command::new("powershell").arg("-Command").arg(ps_command).output();
             }
         });
 
@@ -253,36 +255,34 @@ impl TraverseNode {
     fn join_room(&self, room_code: &str) -> Result<(), Box<dyn std::error::Error>> {
         println!("Joining room: {}", room_code.bright_yellow());
         
-        match TcpStream::connect(format!("{}:443", RELAY_SERVER)) {
-            Ok(mut stream) => {
-                let request = format!("GET /join?room={} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", 
-                    room_code, RELAY_SERVER);
-                stream.write_all(request.as_bytes())?;
-                println!("Connected to relay server");
-                
-                let mut buffer = [0; 4096];
-                loop {
-                    match stream.read(&mut buffer) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            let message = String::from_utf8_lossy(&buffer[..n]);
-                            for line in message.lines() {
-                                if line.starts_with("FILE:") {
-                                    let parts: Vec<&str> = line.split(':').collect();
-                                    if parts.len() >= 4 {
-                                        println!("{}: {} bytes - https://{}/download/{}/{}", 
-                                               parts[1].bright_green(), parts[2], RELAY_SERVER, room_code, parts[3]);
-                                    }
-                                } else if !line.trim().is_empty() {
-                                    println!("{}", line.trim());
-                                }
-                            }
-                        }
-                        Err(_) => break,
+        let url = format!("https://{}/join?room={}", RELAY_SERVER, room_code);
+        
+        // Try curl first, then PowerShell as fallback
+        let output = if let Ok(result) = std::process::Command::new("curl").arg("-s").arg(&url).output() {
+            result
+        } else {
+            let ps_command = format!("Invoke-WebRequest -Uri '{}' -UseBasicParsing | Select-Object -ExpandProperty Content", url);
+            std::process::Command::new("powershell").arg("-Command").arg(ps_command).output()
+                .unwrap_or_else(|_| std::process::Output { status: std::process::ExitStatus::default(), stdout: Vec::new(), stderr: Vec::new() })
+        };
+        
+        let response = String::from_utf8_lossy(&output.stdout);
+        if response.contains("Joined room") {
+            println!("Connected to relay server");
+            for line in response.lines() {
+                if line.starts_with("FILE:") {
+                    let parts: Vec<&str> = line.split(':').collect();
+                    if parts.len() >= 4 {
+                        println!("{}: {} bytes - Available for download", 
+                               parts[1].bright_green(), parts[2]);
                     }
+                } else if !line.trim().is_empty() && !line.contains("HTTP/1.1") {
+                    println!("{}", line.trim());
                 }
             }
-            Err(e) => println!("{}: {}", "Connection failed".bright_red(), e),
+        } else {
+            println!("{}: Room not found or server unavailable", "Connection failed".bright_red());
+            println!("Try the local web interface: {}", format!("http://192.168.1.8:8767").bright_cyan());
         }
         Ok(())
     }

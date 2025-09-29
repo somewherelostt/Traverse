@@ -78,25 +78,38 @@ fn handle_register(mut stream: TcpStream, path: &str, rooms: Rooms) -> std::io::
     if let Some(query) = path.split('?').nth(1) {
         let mut room_code = None;
         let mut portal_id = None;
+        let mut file_name = None;
+        let mut file_size = None;
         
         for param in query.split('&') {
             if let Some((key, value)) = param.split_once('=') {
                 match key {
                     "room" => room_code = Some(value),
                     "portal" => portal_id = Some(value),
+                    "file" => file_name = Some(value),
+                    "size" => file_size = Some(value),
                     _ => {}
                 }
             }
         }
         
-        if let (Some(room), Some(portal)) = (room_code, portal_id) {
+        if let (Some(room), Some(portal), Some(file), Some(size)) = (room_code, portal_id, file_name, file_size) {
             let mut rooms = rooms.lock().unwrap();
-            rooms.entry(room.to_string()).or_insert_with(|| Room {
+            let room_entry = rooms.entry(room.to_string()).or_insert_with(|| Room {
                 code: room.to_string(),
                 files: Vec::new(),
             });
             
-            println!("Portal {} registered in room {}", portal, room);
+            // Add file if not already present
+            if !room_entry.files.iter().any(|f| f.name == file) {
+                room_entry.files.push(FileEntry {
+                    name: file.to_string(),
+                    size: size.to_string(),
+                    hash: portal.to_string(),
+                });
+            }
+            
+            println!("Portal {} registered file {} in room {}", portal, file, room);
             send_ok_response(stream, "Registered successfully")
         } else {
             send_error_response(stream, "Missing parameters")
